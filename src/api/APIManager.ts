@@ -1,9 +1,11 @@
 import { Notice } from 'obsidian';
 import type { MediaTypeModel } from '../models/MediaTypeModel';
 import type { APIModel } from './APIModel';
+import type { MediaType } from '../utils/MediaType';
 
 export class APIManager {
 	apis: APIModel[];
+	apiTypeMap = new Map<MediaType, APIModel>();
 
 	constructor() {
 		this.apis = [];
@@ -66,17 +68,14 @@ export class APIManager {
 		return undefined;
 	}
 
-	getApiByName(name: string): APIModel | undefined {
-		for (const api of this.apis) {
-			if (api.apiName === name) {
-				return api;
-			}
-		}
+	getApiByName = (name: string): APIModel | undefined => this.apis.find(api => api.apiName === name);
 
-		return undefined;
-	}
+	getApiByMediaType = (mediaType: MediaType): APIModel | undefined => this.apiTypeMap.get(mediaType);
 
-	registerAPI(api: APIModel): void {
+	registerAPI(api: APIModel, mediaType?: MediaType): void {
 		this.apis.push(api);
+		if (mediaType) {
+			this.apiTypeMap.set(mediaType, api);
+		}
 	}
 }

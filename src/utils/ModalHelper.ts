@@ -1,12 +1,14 @@
 import { Notice } from 'obsidian';
 import { MediaDbPreviewModal } from 'src/modals/MediaDbPreviewModal';
+import type { APIManager } from '../api/APIManager';
 import type MediaDbPlugin from '../main';
 import { MediaDbAdvancedSearchModal } from '../modals/MediaDbAdvancedSearchModal';
 import { MediaDbIdSearchModal } from '../modals/MediaDbIdSearchModal';
 import { MediaDbSearchModal } from '../modals/MediaDbSearchModal';
 import { MediaDbSearchResultModal } from '../modals/MediaDbSearchResultModal';
+import { MediaQuerySearchModal } from '../modals/MediaQuerySearchModal';
 import type { MediaTypeModel } from '../models/MediaTypeModel';
-import type { MediaType } from './MediaType';
+import { MediaType } from './MediaType';
 
 export enum ModalResultCode {
 	SUCCESS = 'SUCCESS',
@@ -140,6 +142,18 @@ export interface AdvancedSearchModalOptions {
 }
 
 /**
+ * Options for the advanced search modal.
+ * - modalTitle: the title of the modal
+ * - preselectedAPIs: a list of preselected APIs
+ * - prefilledSearchString: prefilled query
+ */
+export interface MediaQueryModalOptions {
+	modalTitle?: string;
+	prefilledSearchString?: string;
+	defaultMediaType?: MediaType;
+}
+
+/**
  * Options for the id search modal.
  * - modalTitle: the title of the modal
  * - preselectedAPIs: a list of preselected APIs
@@ -186,6 +200,12 @@ export const ADVANCED_SEARCH_MODAL_DEFAULT_OPTIONS: AdvancedSearchModalOptions =
 	preselectedAPIs: [],
 	prefilledSearchString: '',
 };
+
+export const MEDIA_QUERY_MODAL_DEFAULT_OPTIONS = {
+	modalTitle: 'Media Query',
+	prefilledSearchString: '',
+	defaultMediaType: MediaType.Series,
+}
 
 export const ID_SEARCH_MODAL_DEFAULT_OPTIONS: IdSearchModalOptions = {
 	modalTitle: 'Media DB Id Search',
@@ -306,6 +326,33 @@ export class ModalHelper {
 	}
 
 	/**
+	 * Creates an {@link MediaQuerySearchModal}, then sets callbacks and awaits them,
+	 * returning either the user input once submitted or nothing once closed.
+	 * The modal needs ot be manually closed by calling `close()` on the modal reference.
+	 *
+	 * @param mediaQueryModalOptions the options for the modal, see {@link ADVANCED_SEARCH_MODAL_DEFAULT_OPTIONS}
+	 * @returns the user input or nothing and a reference to the modal.
+	 */
+	async createQuerySearchModal(
+		apiManager: APIManager,
+		mediaQueryModalOptions?: MediaQueryModalOptions,
+	): Promise<{ advancedSearchModalResult: AdvancedSearchModalResult; advancedSearchModal: MediaDbAdvancedSearchModal }> {
+		const modal = new MediaQuerySearchModal(this.plugin, apiManager, mediaQueryModalOptions);
+		const res: AdvancedSearchModalResult = await new Promise(resolve => {
+			modal.setSubmitCallback(res => resolve({ code: ModalResultCode.SUCCESS, data: res }));
+			modal.setCloseCallback(err => {
+				if (err) {
+					resolve({ code: ModalResultCode.ERROR, error: err });
+				}
+				resolve({ code: ModalResultCode.CLOSE });
+			});
+
+			modal.open();
+		});
+		return { advancedSearchModalResult: res, advancedSearchModal: modal };
+	}
+
+	/**
 	 * Opens an {@link MediaDbAdvancedSearchModal} and awaits its result,
 	 * then executes the `submitCallback` returning the callbacks result and closing the modal.
 	 *
@@ -319,6 +366,49 @@ export class ModalHelper {
 	): Promise<MediaTypeModel[] | undefined> {
 		const { advancedSearchModalResult, advancedSearchModal } = await this.createAdvancedSearchModal(advancedSearchModalOptions);
 		console.debug(`MDB | advencedSearchModal closed with code ${advancedSearchModalResult.code}`);
+
+		if (advancedSearchModalResult.code === ModalResultCode.ERROR) {
+			// there was an error in the modal itself
+			console.warn(advancedSearchModalResult.error);
+			new Notice(advancedSearchModalResult.error.toString());
+			advancedSearchModal.close();
+			return undefined;
+		}
+
+		if (advancedSearchModalResult.code === ModalResultCode.CLOSE) {
+			// modal is already being closed
+			return undefined;
+		}
+
+		try {
+			const callbackRes: MediaTypeModel[] = await submitCallback(advancedSearchModalResult.data);
+			advancedSearchModal.close();
+			return callbackRes;
+		} catch (e) {
+			console.warn(e);
+			new Notice(`${e}`);
+			advancedSearchModal.close();
+			return undefined;
+		}
+	}
+
+
+	/**
+	 * Opens an {@link MediaQuerySearchModal} and awaits its result,
+	 * then executes the `submitCallback` returning the callbacks result and closing the modal.
+	 *
+	 * @param apiManager
+	 * @param advancedSearchModalOptions the options for the modal, see {@link ADVANCED_SEARCH_MODAL_DEFAULT_OPTIONS}
+	 * @param submitCallback the callback that gets executed after the modal has been submitted, but after it has been closed
+	 * @returns the user input or nothing and a reference to the modal.
+	 */
+	async openQuerySearchModal(
+		apiManager: APIManager,
+		advancedSearchModalOptions: MediaQueryModalOptions,
+		submitCallback: (advancedSearchModalData: AdvancedSearchModalData) => Promise<MediaTypeModel[]>,
+	): Promise<MediaTypeModel[] | undefined> {
+		const { advancedSearchModalResult, advancedSearchModal } = await this.createQuerySearchModal(apiManager, advancedSearchModalOptions);
+		console.debug(`MDB | mediaQuerySearchModal closed with code ${advancedSearchModalResult.code}`);
 
 		if (advancedSearchModalResult.code === ModalResultCode.ERROR) {
 			// there was an error in the modal itself

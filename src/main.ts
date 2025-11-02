@@ -1,7 +1,6 @@
 import type { TFile } from 'obsidian';
-import { MarkdownView, Notice, parseYaml, Plugin, stringifyYaml, TFolder } from 'obsidian';
-import { requestUrl, normalizePath } from 'obsidian';
-import type { MediaType } from 'src/utils/MediaType';
+import { MarkdownView, normalizePath, Notice, parseYaml, Plugin, requestUrl, stringifyYaml, TFolder } from 'obsidian';
+import { MediaType } from 'src/utils/MediaType';
 import { APIManager } from './api/APIManager';
 import { BoardGameGeekAPI } from './api/apis/BoardGameGeekAPI';
 import { ComicVineAPI } from './api/apis/ComicVineAPI';
@@ -26,7 +25,7 @@ import { MEDIA_TYPES, MediaTypeManager } from './utils/MediaTypeManager';
 import type { SearchModalOptions } from './utils/ModalHelper';
 import { ModalHelper } from './utils/ModalHelper';
 import type { CreateNoteOptions } from './utils/Utils';
-import { replaceIllegalFileNameCharactersInString, unCamelCase, hasTemplaterPlugin, useTemplaterPluginInFile } from './utils/Utils';
+import { hasTemplaterPlugin, replaceIllegalFileNameCharactersInString, unCamelCase, useTemplaterPluginInFile } from './utils/Utils';
 
 export type Metadata = Record<string, unknown>;
 
@@ -50,15 +49,15 @@ export default class MediaDbPlugin extends Plugin {
 	async onload(): Promise<void> {
 		this.apiManager = new APIManager();
 		// register APIs
-		this.apiManager.registerAPI(new OMDbAPI(this));
+		this.apiManager.registerAPI(new OMDbAPI(this), MediaType.Series);
 		this.apiManager.registerAPI(new MALAPI(this));
 		this.apiManager.registerAPI(new MALAPIManga(this));
 		this.apiManager.registerAPI(new WikipediaAPI(this));
 		this.apiManager.registerAPI(new MusicBrainzAPI(this));
-		this.apiManager.registerAPI(new SteamAPI(this));
-		this.apiManager.registerAPI(new BoardGameGeekAPI(this));
+		this.apiManager.registerAPI(new SteamAPI(this), MediaType.Game);
+		this.apiManager.registerAPI(new BoardGameGeekAPI(this), MediaType.BoardGame);
 		this.apiManager.registerAPI(new OpenLibraryAPI(this));
-		this.apiManager.registerAPI(new ComicVineAPI(this));
+		this.apiManager.registerAPI(new ComicVineAPI(this), MediaType.ComicManga);
 		this.apiManager.registerAPI(new MobyGamesAPI(this));
 		this.apiManager.registerAPI(new GiantBombAPI(this));
 
@@ -77,7 +76,7 @@ export default class MediaDbPlugin extends Plugin {
 		this.dateFormatter.setFormat(this.settings.customDateFormat);
 
 		// add icon to the left ribbon
-		const ribbonIconEl = this.addRibbonIcon('database', 'Add new Media DB entry', () => this.createEntryWithAdvancedSearchModal());
+		const ribbonIconEl = this.addRibbonIcon('database', 'Query for media', () => this.createEntryWithAdvancedSearchModal());
 		ribbonIconEl.addClass('obsidian-media-db-plugin-ribbon-class');
 
 		this.registerEvent(
@@ -160,7 +159,7 @@ export default class MediaDbPlugin extends Plugin {
 	}
 
 	async createLinkWithSearchModal(): Promise<void> {
-		const apiSearchResults = await this.modalHelper.openAdvancedSearchModal({}, async advancedSearchModalData => {
+		const apiSearchResults = await this.modalHelper.openQuerySearchModal(this.apiManager, {}, async advancedSearchModalData => {
 			return await this.apiManager.query(advancedSearchModalData.query, advancedSearchModalData.apis);
 		});
 
@@ -233,7 +232,7 @@ export default class MediaDbPlugin extends Plugin {
 	}
 
 	async createEntryWithAdvancedSearchModal(): Promise<void> {
-		const apiSearchResults = await this.modalHelper.openAdvancedSearchModal({}, async advancedSearchModalData => {
+		const apiSearchResults = await this.modalHelper.openQuerySearchModal(this.apiManager, {}, async advancedSearchModalData => {
 			return await this.apiManager.query(advancedSearchModalData.query, advancedSearchModalData.apis);
 		});
 
