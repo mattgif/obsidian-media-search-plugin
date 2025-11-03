@@ -1,5 +1,5 @@
 import { iso6392 } from 'iso-639-2';
-import type { TFile, TFolder, App } from 'obsidian';
+import { type TFile, type TFolder, type App } from 'obsidian';
 import { requestUrl } from 'obsidian';
 import type { MediaTypeModel } from '../models/MediaTypeModel';
 
@@ -302,4 +302,63 @@ export function getLanguageName(code: string): string | null {
 	const language = iso6392.find(lang => lang.iso6392B === code || lang.iso6392T === code);
 
 	return language?.name ?? null;
+}
+
+
+/**
+ * Debounces a function, returning a promise that resolves with the function's return value
+ * when it is finally called.
+ *
+ * @param callback The function to debounce (can be async or sync).
+ * @param delay The delay in milliseconds.
+ * @returns A debounced function that returns a Promise.
+ */
+export function asyncDebounce<P extends unknown[], R>(
+	callback: (...args: P) => Promise<R>,
+	delay: number
+): (...args: P) => Promise<R> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	// This stores the resolve and reject functions of the *last* promise created
+	// so they can be called when the debounced function actually runs.
+	let pendingPromise: {
+		resolve: (value: R) => void;
+		reject: (error: unknown) => void;
+	} | undefined;
+
+	return (...args: P): Promise<R> => {
+		// Create a new promise for the current call
+		const newPromise = new Promise<R>((resolve, reject) => {
+			// Store the resolve/reject for the last call (this one)
+			pendingPromise = { resolve, reject };
+		});
+
+		// Clear any existing timer so the function is not executed
+		if (timer) {
+			clearTimeout(timer);
+		}
+
+		// Set a new timer
+		// eslint-disable-next-line @typescript-eslint/no-misused-promises
+		timer = setTimeout(async () => {
+			try {
+				// Execute the original function and await the result if it's a promise
+				const output = await callback(...args);
+				// Resolve the stored promise with the output
+				if (pendingPromise) {
+					pendingPromise.resolve(output as R);
+				}
+			} catch (err) {
+				// Reject the stored promise if an error occurs
+				if (pendingPromise) {
+					pendingPromise.reject(err);
+				}
+			} finally {
+				pendingPromise = undefined;
+				timer = undefined;
+			}
+		}, delay);
+
+		// Return the new promise to the caller
+		return newPromise;
+	};
 }

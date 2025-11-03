@@ -123,4 +123,13 @@ small.media-db-plugin-list-text {
 	padding: var(--size-4-4);
 }
 
+.search__header {
+	padding: 8px 24px;
+	margin-top: 16px;
+}
+
+.search__title {
+
+}
+
 /* endregion */

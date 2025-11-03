@@ -1,12 +1,12 @@
 import { requestUrl } from 'obsidian';
 import type MediaDbPlugin from '../../main';
+import type { ApiQueryOptions, ApiQueryResponse } from '../../models/Api';
 import { GameModel } from '../../models/GameModel';
 import type { MediaTypeModel } from '../../models/MediaTypeModel';
 import { MovieModel } from '../../models/MovieModel';
 import { SeriesModel } from '../../models/SeriesModel';
 import { MediaType } from '../../utils/MediaType';
-import type {ApiQueryOptions} from '../APIModel';
-import { APIModel  } from '../APIModel';
+import { APIModel } from '../APIModel';
 
 interface ErrorResponse {
 	Response: 'False';
@@ -58,145 +58,109 @@ type IdResponse =
 	  }
 	| ErrorResponse;
 
-interface SearchOptions { title: string, mediaType?: string, page?: number }
-
 export class OMDbAPI extends APIModel {
 	plugin: MediaDbPlugin;
-	typeMappings: Map<string, string>;
+	typeMappings = new Map<string, MediaType>();
+	apiName = 'OMDbAPI';
 	apiDateFormat: string = 'DD MMM YYYY';
-	baseUrl = 'https://www.omdbapi.com'
-	pageSize = 10
+	apiUrl = 'https://www.omdbapi.com/';
+	apiDescription = 'A free API for Movies, Series and Games.';
+	perPage: number = 10;
 
 	constructor(plugin: MediaDbPlugin) {
 		super();
 
 		this.plugin = plugin;
-		this.apiName = 'OMDbAPI';
-		this.apiDescription = 'A free API for Movies, Series and Games.';
-		this.apiUrl = 'https://www.omdbapi.com/';
-		this.types = [MediaType.Movie, MediaType.Series, MediaType.Game];
-		this.typeMappings = new Map<string, string>();
-		this.typeMappings.set('movie', 'movie');
-		this.typeMappings.set('series', 'series');
-		this.typeMappings.set('game', 'game');
-	}
-
-	async makeSearchRequest(searchOptions: SearchOptions): Promise<SearchResponse> {
-		const { mediaType, page, title } = searchOptions;
-		let url = `${this.baseUrl}/?apikey=${this.plugin.settings.OMDbKey}&s=${encodeURIComponent(title)}`
-		if (mediaType) {
-			url += `&type=${encodeURIComponent(mediaType)}`;
-		}
-		if (page) {
-			url += `&page=${encodeURIComponent(page)}`;
-		}
-		const response = await requestUrl(url);
-
-		if (response.status === 401) {
-			throw Error(`MDB | Authentication for ${this.apiName} failed. Check the API key.`);
-		}
-		if (response.status !== 200) {
-			throw Error(`MDB | Received status code ${response.status} from ${this.apiName}.`);
-		}
-
-		const data = response.json as SearchResponse | undefined;
-
-		if (!data) {
-			throw Error(`MDB | No data received from ${this.apiName}.`);
-		}
-		return data
+		this.typeMappings.set('movie', MediaType.Movie);
+		this.typeMappings.set('series', MediaType.Series);
+		this.typeMappings.set('game', MediaType.Game);
+		this.types = Array.from(this.typeMappings.values());
 	}
 
 	parseSearchResult(result: SearchResult): MediaTypeModel | undefined {
 		const type = this.typeMappings.get(result.Type.toLowerCase());
-		if (type === undefined) return undefined;
-
+		if (!type) return undefined;
+		const data = {
+			type: type,
+			title: result.Title,
+			englishTitle: result.Title,
+			year: result.Year,
+			dataSource: this.apiName,
+			id: result.imdbID,
+		};
 		switch (type) {
-			case 'movie':
-				return new MovieModel({
-					type: type,
-					title: result.Title,
-					englishTitle: result.Title,
-					year: result.Year,
-					dataSource: this.apiName,
-					id: result.imdbID,
-				})
-			case 'series':
-				return new SeriesModel({
-					type: type,
-					title: result.Title,
-					englishTitle: result.Title,
-					year: result.Year,
-					dataSource: this.apiName,
-					id: result.imdbID,
-				})
-			case 'game':
-				return new GameModel({
-					type: type,
-					title: result.Title,
-					englishTitle: result.Title,
-					year: result.Year,
-					dataSource: this.apiName,
-					id: result.imdbID,
-				})
+			case MediaType.Movie:
+				return new MovieModel(data);
+			case MediaType.Series:
+				return new SeriesModel(data);
+			case MediaType.Game:
+				return new GameModel(data);
 			default:
 				return undefined;
 		}
 	}
 
-	async searchByTitle(title: string, queryOptions: ApiQueryOptions = {} ): Promise<MediaTypeModel[]> {
-		const { page, mediaType } = queryOptions;
+	calculatePageFromOffset(offset: number): number {
+		return Math.floor((offset + this.perPage) / this.perPage);
+	}
+
+	async searchByTitle(title: string, queryOptions: ApiQueryOptions = {}): Promise<ApiQueryResponse> {
+		const { offset, mediaType } = queryOptions;
+		const page = offset && this.calculatePageFromOffset(offset);
+
 		console.debug(`MDB | api "${this.apiName}" queried`, { title, mediaType });
 
 		if (!this.plugin.settings.OMDbKey) {
 			throw new Error(`MDB | API key for ${this.apiName} missing.`);
 		}
 
-		const data = await this.makeSearchRequest({ title, mediaType, page });
+		let url = `${this.apiUrl}?apikey=${this.plugin.settings.OMDbKey}&s=${encodeURIComponent(title)}`;
+		if (mediaType) {
+			url += `&type=${encodeURIComponent(mediaType)}`;
+		}
+		if (page) {
+			url += `&page=${encodeURIComponent(page)}`;
+		}
+		const omdbResponse = await requestUrl(url);
+
+		if (omdbResponse.status === 401) {
+			throw Error(`MDB | Authentication for ${this.apiName} failed. Check the API key.`);
+		}
+		if (omdbResponse.status !== 200) {
+			throw Error(`MDB | Received status code ${omdbResponse.status} from ${this.apiName}.`);
+		}
+
+		const data = omdbResponse.json as SearchResponse | undefined;
+
+		if (!data) {
+			throw Error(`MDB | No data received from ${this.apiName}.`);
+		}
+
+		const res: ApiQueryResponse = {
+			offset: offset ?? 0,
+			total: 0,
+			results: [],
+		};
 
 		if (data.Response === 'False') {
 			if (data.Error === 'Movie not found!') {
-				return [];
+				return res;
 			}
 
 			throw Error(`MDB | Received error from ${this.apiName}: ${data.Error}`);
 		}
 		if (!data.Search) {
-			return [];
+			return res;
 		}
 
-		const ret: MediaTypeModel[] = [];
-
+		res.total = parseInt(data.totalResults);
 		for (const result of data.Search) {
 			const parsedResult = this.parseSearchResult(result);
 			if (!parsedResult) continue;
-			ret.push(parsedResult);
+			res.results.push(parsedResult);
 		}
 
-		return ret;
-	}
-
-	async makeIdRequest(id: string, mediaType?: string): Promise<IdResponse> {
-		let url = `${this.baseUrl}/?apikey=${this.plugin.settings.OMDbKey}&i=${encodeURIComponent(id)}`
-		if (mediaType) {
-			url += `&type=${encodeURIComponent(mediaType)}`;
-		}
-		const response = await requestUrl(url);
-		if (response.status === 401) {
-			throw Error(`MDB | Authentication for ${this.apiName} failed. Check the API key.`);
-		}
-		if (response.status !== 200) {
-			throw Error(`MDB | Received status code ${response.status} from ${this.apiName}.`);
-		}
-		const result = response.json as IdResponse | undefined;
-		if (!result) {
-			throw Error(`MDB | No data received from ${this.apiName}.`);
-		}
-
-		if (result.Response === 'False') {
-			throw Error(`MDB | Received error from ${this.apiName}: ${result.Error}`);
-		}
-		return result
+		return res;
 	}
 
 	parseIdResponse(result: IdResponse): MovieModel | SeriesModel | GameModel | undefined {
@@ -304,7 +268,26 @@ export class OMDbAPI extends APIModel {
 			throw Error(`MDB | API key for ${this.apiName} missing.`);
 		}
 
-		const result = await this.makeIdRequest(id, mediaType);
+		let url = `${this.apiUrl}?apikey=${this.plugin.settings.OMDbKey}&i=${encodeURIComponent(id)}`;
+		if (mediaType) {
+			url += `&type=${encodeURIComponent(mediaType)}`;
+		}
+		const response = await requestUrl(url);
+		if (response.status === 401) {
+			throw Error(`MDB | Authentication for ${this.apiName} failed. Check the API key.`);
+		}
+		if (response.status !== 200) {
+			throw Error(`MDB | Received status code ${response.status} from ${this.apiName}.`);
+		}
+		const result = response.json as IdResponse | undefined;
+		if (!result) {
+			throw Error(`MDB | No data received from ${this.apiName}.`);
+		}
+
+		if (result.Response === 'False') {
+			throw Error(`MDB | Received error from ${this.apiName}: ${result.Error}`);
+		}
+
 		const parsedResult = this.parseIdResponse(result);
 		if (!parsedResult) {
 			throw new Error(`MDB | Unknown media type for id ${id}`);

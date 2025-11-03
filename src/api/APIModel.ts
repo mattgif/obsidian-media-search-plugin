@@ -1,8 +1,7 @@
 import type MediaDbPlugin from '../main';
+import type { ApiQueryOptions, ApiQueryResponse } from '../models/Api';
 import type { MediaTypeModel } from '../models/MediaTypeModel';
 import type { MediaType } from '../utils/MediaType';
-
-export interface ApiQueryOptions { mediaType?: string, page?: number }
 
 export abstract class APIModel {
 	apiName!: string;
@@ -19,7 +18,7 @@ export abstract class APIModel {
 	 * @param {string} [queryOptions.mediaType] the type of media to query for
 	 * @param {number} [queryOptions.page] the page of results to query for
 	 */
-	abstract searchByTitle(title: string, queryOptions: ApiQueryOptions): Promise<MediaTypeModel[]>;
+	abstract searchByTitle(title: string, queryOptions: ApiQueryOptions): Promise<MediaTypeModel[] | ApiQueryResponse>;
 
 	abstract getById(id: string): Promise<MediaTypeModel>;
 
